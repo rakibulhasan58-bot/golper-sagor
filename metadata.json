@@ -1,5 +1,7 @@
 {
   "name": "GalpoSagor AI - Premium Bengali Story Suite",
   "description": "A high-performance creative writing and story generation platform specialized for long-form Bengali novels, romantic epics, and adult fiction with advanced editing tools.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

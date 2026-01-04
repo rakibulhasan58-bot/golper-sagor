@@ -4,40 +4,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GalpoSagor AI - Bengali Story Suite</title>
+    <title>GalpoSagor AI - Premium Bengali 18+ Story Suite</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Noto+Sans+Bengali:wght@100..900&display=swap" rel="stylesheet">
+    <!-- Export Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html-docx-js/0.3.1/html-docx.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body {
             font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
-            background-color: #0f172a;
+            background-color: #020617;
             color: #f8fafc;
+            overflow: hidden;
         }
         .bengali-text {
-            font-family: 'Hind Siliguri', sans-serif;
-            line-height: 1.8;
+            font-family: 'Noto Sans Bengali', sans-serif;
+            line-height: 2;
+            letter-spacing: 0.015em;
         }
         ::-webkit-scrollbar {
-            width: 8px;
+            width: 6px;
         }
         ::-webkit-scrollbar-track {
-            background: #1e293b;
+            background: #0f172a;
         }
         ::-webkit-scrollbar-thumb {
-            background: #475569;
-            border-radius: 4px;
+            background: #334155;
+            border-radius: 10px;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background: #64748b;
+            background: #e11d48;
         }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .animate-fade-in {
-            animation: fadeIn 0.4s ease-out forwards;
+            animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .editor-container [contenteditable]:empty:before {
+            content: attr(data-placeholder);
+            color: #475569;
+            font-style: italic;
+            cursor: text;
+        }
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; color: black; overflow: visible; }
+            .print-only { display: block !important; }
         }
     </style>
 <script type="importmap">

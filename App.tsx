@@ -1,296 +1,248 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { StoryProject, StoryChapter, StoryGenre, GenerationSettings } from './types';
+import { 
+  StoryProject, 
+  StoryChapter, 
+  StoryGenre, 
+  GenerationSettings, 
+  MaturityLevel, 
+  LanguageStyle, 
+  ChapterLength 
+} from './types';
 import { generateStoryChapter, rewriteContent } from './services/geminiService';
 import Editor from './components/Editor';
 
-const STORAGE_KEY = 'galposagor_projects_v1';
+const STORAGE_KEY = 'galposagor_v4_premium_storage';
 
-type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved';
+const DEFAULT_SETTINGS: GenerationSettings = {
+  creativity: 0.9,
+  length: 'Long',
+  tone: 'Passionate and Descriptive',
+  customSystemPrompt: ''
+};
 
 const App: React.FC = () => {
   const [savedProjects, setSavedProjects] = useState<StoryProject[]>([]);
   const [activeProject, setActiveProject] = useState<StoryProject | null>(null);
   const [activeChapterIndex, setActiveChapterIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{msg: string, type: 'error' | 'success'} | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved'>('idle');
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+  const [showChapterSettings, setShowChapterSettings] = useState(false);
   
-  // Use ReturnType<typeof setTimeout> instead of NodeJS.Timeout to fix namespace error in browser environment
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedRef = useRef<string>("");
 
-  // Settings state with updated default tone
-  const [settings, setSettings] = useState<GenerationSettings>({
-    creativity: 0.8,
-    length: 'Long',
-    tone: 'Passionate and Intense'
-  });
-
-  // Load projects on mount
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as StoryProject[];
         setSavedProjects(parsed);
-      } catch (e) {
-        console.error("Failed to parse saved projects", e);
-      }
+      } catch (e) { console.error("Restore Error:", e); }
     }
   }, []);
 
-  // Auto-save logic
-  useEffect(() => {
+  const handleSaveProject = useCallback((isAuto = false) => {
     if (!activeProject) return;
-
-    // When project or settings change, mark as unsaved and start timer
-    setSaveStatus('unsaved');
-
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-
-    autoSaveTimerRef.current = setTimeout(() => {
-      handleSaveProject(true); // true means silent auto-save
-    }, 3000); // 3 second debounce
-
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    };
-  }, [activeProject, settings]);
-
-  const saveToStorage = (projects: StoryProject[]) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-    setSavedProjects(projects);
-  };
-
-  const handleSaveProject = (isAuto = false) => {
-    if (!activeProject) return;
-    
     setSaveStatus('saving');
     
-    const existingIndex = savedProjects.findIndex(p => p.id === activeProject.id);
-    let updatedProjects: StoryProject[];
-    
-    if (existingIndex >= 0) {
-      updatedProjects = [...savedProjects];
-      updatedProjects[existingIndex] = { ...activeProject };
-    } else {
-      updatedProjects = [activeProject, ...savedProjects];
-    }
-    
-    saveToStorage(updatedProjects);
-    
-    setSaveStatus('saved');
-    if (!isAuto) {
-      setError("Project saved successfully!");
-      setTimeout(() => setError(null), 3000);
-    }
-    
-    // Clear the "Saved" status after a while to look clean
-    setTimeout(() => {
-      setSaveStatus(prev => prev === 'saved' ? 'idle' : prev);
-    }, 2000);
-  };
+    setSavedProjects(prev => {
+      const idx = prev.findIndex(p => p.id === activeProject.id);
+      let updated: StoryProject[];
+      if (idx >= 0) {
+        updated = [...prev];
+        updated[idx] = { ...activeProject };
+      } else {
+        updated = [activeProject, ...prev];
+      }
+      
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      lastSavedRef.current = JSON.stringify(activeProject);
+      
+      setLastSavedTime(new Date().toLocaleTimeString('bn-BD'));
+      setSaveStatus('saved');
+      
+      if (!isAuto) {
+        setError({ msg: "সফলভাবে সংরক্ষিত!", type: 'success' });
+        setTimeout(() => setError(null), 3000);
+      }
+      
+      setTimeout(() => setSaveStatus('idle'), 3000);
+      return updated;
+    });
+  }, [activeProject]);
 
-  const deleteProject = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this project?")) return;
+  useEffect(() => {
+    if (!activeProject) return;
+    const current = JSON.stringify(activeProject);
+    if (current === lastSavedRef.current) return;
     
-    const updated = savedProjects.filter(p => p.id !== id);
-    saveToStorage(updated);
-    if (activeProject?.id === id) {
-      setActiveProject(null);
-    }
-  };
+    setSaveStatus('unsaved');
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => handleSaveProject(true), 5000);
+    
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+  }, [activeProject, handleSaveProject]);
 
   const createNewProject = () => {
     const newProject: StoryProject = {
       id: Date.now().toString(),
-      title: 'নতুন উপন্যাস',
+      title: 'নতুন অ্যাডাল্ট উপন্যাস',
       description: '',
-      genre: 'Romance',
-      maturityLevel: 'Adult',
+      genre: 'Adult/Erotica',
+      maturityLevel: '18+ Explicit',
       languageStyle: 'Modern/Colloquial',
+      settings: { ...DEFAULT_SETTINGS },
       createdAt: Date.now(),
-      chapters: [{ id: '1', title: 'সূচনা (Introduction)', content: '' }]
+      chapters: [{ id: Date.now().toString(), title: 'পরিচ্ছেদ ১', content: '' }]
     };
     setActiveProject(newProject);
     setActiveChapterIndex(0);
-    setSaveStatus('idle');
+    setLastSavedTime(null);
+    lastSavedRef.current = JSON.stringify(newProject);
   };
 
   const loadProject = (project: StoryProject) => {
     setActiveProject(project);
     setActiveChapterIndex(0);
-    // After loading, we don't want it immediately saying "unsaved"
-    setTimeout(() => setSaveStatus('idle'), 100);
+    setLastSavedTime(null);
+    lastSavedRef.current = JSON.stringify(project);
+    if (window.innerWidth < 1024) setSidebarOpen(false);
   };
 
-  const updateChapterContent = (content: string) => {
-    if (!activeProject) return;
-    const newChapters = [...activeProject.chapters];
-    newChapters[activeChapterIndex].content = content;
-    setActiveProject({ ...activeProject, chapters: newChapters });
+  const deleteProject = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("আপনি কি নিশ্চিতভাবে এই কাহিনীটি মুছে ফেলতে চান?")) return;
+    const updated = savedProjects.filter(p => p.id !== id);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    setSavedProjects(updated);
+    if (activeProject?.id === id) setActiveProject(null);
   };
 
   const handleGenerate = async () => {
-    if (!activeProject) return;
+    if (!activeProject || isGenerating) return;
     setIsGenerating(true);
     setError(null);
     
+    const currentChapter = activeProject.chapters[activeChapterIndex];
+    
+    // Resolve settings: Chapter Overrides > Project Defaults
+    const genre = currentChapter.genre || activeProject.genre;
+    const settings = currentChapter.settings || activeProject.settings;
+    const maturity = currentChapter.maturityLevel || activeProject.maturityLevel;
+    const language = currentChapter.languageStyle || activeProject.languageStyle;
+
     try {
-      const chapter = activeProject.chapters[activeChapterIndex];
-      const context = `Writing chapter ${activeChapterIndex + 1}: ${chapter.title}. The story is about ${activeProject.description}. Focus on depth and excitement.`;
-      
-      const prevSummary = activeChapterIndex > 0 
-        ? activeProject.chapters[activeChapterIndex - 1].content.substring(0, 500) 
-        : undefined;
-
-      const generatedText = await generateStoryChapter(
+      const result = await generateStoryChapter(
         activeProject.title,
-        chapter.title,
-        context,
-        activeProject.genre,
+        currentChapter.title,
+        activeProject.description,
+        genre,
         settings,
-        activeProject.maturityLevel,
-        activeProject.languageStyle,
-        prevSummary
+        maturity,
+        language,
+        activeChapterIndex > 0 ? activeProject.chapters[activeChapterIndex - 1].content.slice(0, 2000) : undefined
       );
-
-      if (generatedText) {
-        updateChapterContent(generatedText);
+      if (result) {
+        const chs = [...activeProject.chapters];
+        chs[activeChapterIndex].content = result;
+        setActiveProject({ ...activeProject, chapters: chs });
       }
     } catch (err: any) {
-      setError(err.message || 'Generation failed. Please try again.');
+      setError({ msg: "কাহিনী তৈরিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।", type: 'error' });
     } finally {
       setIsGenerating(false);
     }
   };
 
   const handleRewrite = async (instruction: string) => {
-    if (!activeProject) return;
+    if (!activeProject || isGenerating) return;
     setIsGenerating(true);
-    setError(null);
+    const genre = activeProject.chapters[activeChapterIndex].genre || activeProject.genre;
     try {
-      const content = activeProject.chapters[activeChapterIndex].content;
-      const rewritten = await rewriteContent(content, instruction, activeProject.genre);
-      if (rewritten) {
-        updateChapterContent(rewritten);
+      const result = await rewriteContent(activeProject.chapters[activeChapterIndex].content, instruction, genre);
+      if (result) {
+        const chs = [...activeProject.chapters];
+        chs[activeChapterIndex].content = result;
+        setActiveProject({ ...activeProject, chapters: chs });
       }
-    } catch (err: any) {
-      setError(err.message || 'Rewrite failed.');
-    } finally {
-      setIsGenerating(false);
-    }
+    } catch (err: any) { setError({ msg: "Edit failed.", type: 'error' }); }
+    finally { setIsGenerating(false); }
   };
 
-  const addChapter = () => {
+  const exportWord = () => {
     if (!activeProject) return;
-    const newChapter: StoryChapter = {
-      id: (activeProject.chapters.length + 1).toString(),
-      title: `পরিচ্ছেদ ${activeProject.chapters.length + 1}`,
-      content: ''
-    };
-    setActiveProject({
-      ...activeProject,
-      chapters: [...activeProject.chapters, newChapter]
-    });
-    setActiveChapterIndex(activeProject.chapters.length);
+    const chapter = activeProject.chapters[activeChapterIndex];
+    const html = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    <head><meta charset='utf-8'><style>body{font-family:'Hind Siliguri','Arial Unicode MS',sans-serif;line-height:1.8;padding:40px;}h1{color:#e11d48;text-align:center;}h2{color:#334155;border-bottom:2px solid #e11d48;margin-bottom:20px;}</style></head>
+    <body><h1>${activeProject.title}</h1><h2>${chapter.title}</h2><div>${chapter.content}</div></body></html>`;
+    const converted = (window as any).htmlDocx.asBlob(html);
+    (window as any).saveAs(converted, `${activeProject.title}_${chapter.title}.docx`);
   };
 
-  const renderSaveIndicator = () => {
-    switch (saveStatus) {
-      case 'unsaved':
-        return <span className="text-[9px] text-amber-500 font-bold uppercase tracking-widest flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Unsaved</span>;
-      case 'saving':
-        return <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1.5">Saving...</span>;
-      case 'saved':
-        return <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1.5"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> Saved</span>;
-      default:
-        return null;
-    }
+  const activeChapter = activeProject?.chapters[activeChapterIndex];
+  const hasChapterOverrides = !!(activeChapter?.genre || activeChapter?.maturityLevel || activeChapter?.languageStyle || activeChapter?.settings);
+
+  const updateChapterOverride = (key: keyof StoryChapter, value: any) => {
+    if (!activeProject) return;
+    const chs = [...activeProject.chapters];
+    chs[activeChapterIndex] = { ...chs[activeChapterIndex], [key]: value };
+    setActiveProject({ ...activeProject, chapters: chs });
+  };
+
+  const updateChapterSetting = (key: keyof GenerationSettings, value: any) => {
+    if (!activeProject || !activeChapter) return;
+    const currentSettings = activeChapter.settings || { ...activeProject.settings };
+    const newSettings = { ...currentSettings, [key]: value };
+    updateChapterOverride('settings', newSettings);
+  };
+
+  const clearChapterOverrides = () => {
+    if (!activeProject) return;
+    const chs = [...activeProject.chapters];
+    const { genre, maturityLevel, languageStyle, settings, ...rest } = chs[activeChapterIndex];
+    chs[activeChapterIndex] = rest as StoryChapter;
+    setActiveProject({ ...activeProject, chapters: chs });
+    setShowChapterSettings(false);
   };
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-80' : 'w-0'} bg-slate-900 border-r border-slate-800 transition-all duration-300 flex flex-col overflow-hidden shadow-2xl`}>
-        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/80 sticky top-0 z-10 backdrop-blur-sm">
-          <h1 className="text-xl font-bold text-rose-500">GalpoSagor <span className="text-xs font-normal text-slate-400 uppercase tracking-widest">AI</span></h1>
-          <button onClick={createNewProject} className="p-1.5 bg-rose-600 hover:bg-rose-500 rounded-full transition shadow-lg shadow-rose-900/20" title="New Project">
-             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden selection:bg-rose-500/30">
+      <aside className={`${sidebarOpen ? 'w-84' : 'w-0'} bg-slate-900 border-r border-slate-800 transition-all duration-500 flex flex-col z-30 shadow-2xl no-print`}>
+        <div className="p-8 border-b border-slate-800 flex justify-between items-center bg-slate-900/95 sticky top-0 z-10">
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 bg-gradient-to-br from-rose-500 to-rose-700 rounded-2xl flex items-center justify-center font-black text-2xl shadow-xl shadow-rose-900/40 text-white">গ</div>
+            <h1 className="text-xl font-black text-white tracking-tight uppercase">GalpoSagor <span className="text-rose-500">Pro</span></h1>
+          </div>
+          <button onClick={createNewProject} className="p-2.5 bg-rose-600 hover:bg-rose-500 rounded-xl shadow-xl transition-all hover:scale-110 active:scale-90 text-white" aria-label="New Project">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
           </button>
         </div>
-
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
+        
+        <div className="flex-1 overflow-y-auto p-6 space-y-10 custom-scrollbar">
           {activeProject && (
-            <div className="space-y-6 animate-fade-in">
-              <section>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block tracking-wider">Current Story Info</label>
-                <input 
-                  value={activeProject.title}
-                  onChange={(e) => setActiveProject({...activeProject, title: e.target.value})}
-                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm focus:border-rose-500 outline-none mb-2 font-medium"
-                  placeholder="উপন্যাসের নাম"
-                />
-                <textarea 
-                  value={activeProject.description}
-                  onChange={(e) => setActiveProject({...activeProject, description: e.target.value})}
-                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm focus:border-rose-500 outline-none h-20 resize-none"
-                  placeholder="কাহিনী সংক্ষেপ (Brief plot)..."
-                />
+            <div className="space-y-8 animate-fade-in">
+              <section className="space-y-4">
+                <label className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] block">কাহিনী পরিচিতি</label>
+                <input value={activeProject.title} onChange={e => setActiveProject({...activeProject, title: e.target.value})} className="w-full bg-slate-800/50 border border-slate-700 rounded-xl p-4 text-sm focus:border-rose-500 outline-none transition-all placeholder:text-slate-600 shadow-inner" placeholder="উপন্যাসের নাম" />
+                <textarea value={activeProject.description} onChange={e => setActiveProject({...activeProject, description: e.target.value})} className="w-full bg-slate-800/50 border border-slate-700 rounded-xl p-4 text-xs h-32 focus:border-rose-500 outline-none resize-none transition-all placeholder:text-slate-600 shadow-inner" placeholder="কাহিনীর প্রেক্ষাপট বা সংক্ষেপ..." />
               </section>
 
-              <section>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block tracking-wider">Novel Configuration</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-400">Genre</span>
-                    <select 
-                      value={activeProject.genre}
-                      onChange={(e) => setActiveProject({...activeProject, genre: e.target.value as StoryGenre})}
-                      className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-xs outline-none"
-                    >
-                      <option>Romance</option>
-                      <option>Adult/Erotica</option>
-                      <option>Thriller</option>
-                      <option>Drama</option>
-                      <option>Historical</option>
-                      <option>Mystery</option>
-                      <option>Social</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-400">Maturity</span>
-                    <select 
-                      value={activeProject.maturityLevel}
-                      onChange={(e) => setActiveProject({...activeProject, maturityLevel: e.target.value as any})}
-                      className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-xs outline-none"
-                    >
-                      <option>General</option>
-                      <option>Adult</option>
-                      <option>18+ Explicit</option>
-                    </select>
-                  </div>
+              <section className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">পরিচ্ছেদ তালিকা</label>
+                  <button onClick={() => setActiveProject({...activeProject, chapters: [...activeProject.chapters, {id: Date.now().toString(), title: `পরিচ্ছেদ ${activeProject.chapters.length + 1}`, content: ''}]})} className="text-rose-500 text-[10px] font-black bg-rose-500/10 px-2 py-1 rounded hover:bg-rose-500 hover:text-white transition-all">+ নতুন</button>
                 </div>
-              </section>
-
-              <section>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Chapters</label>
-                  <button onClick={addChapter} className="text-rose-500 hover:text-rose-400 text-[10px] font-bold uppercase tracking-tighter transition">+ Add Chapter</button>
-                </div>
-                <div className="space-y-1">
+                <div className="space-y-2">
                   {activeProject.chapters.map((ch, idx) => (
-                    <button
-                      key={ch.id}
-                      onClick={() => setActiveChapterIndex(idx)}
-                      className={`w-full text-left p-2 rounded text-xs transition relative group ${activeChapterIndex === idx ? 'bg-rose-600/20 text-rose-400 border border-rose-600/30 ring-1 ring-rose-600/20' : 'hover:bg-slate-800 text-slate-400'}`}
-                    >
-                      <span className="font-mono text-[9px] mr-2 opacity-50">{(idx + 1).toString().padStart(2, '0')}</span>
-                      {ch.title || 'Untitled Chapter'}
+                    <button key={ch.id} onClick={() => setActiveChapterIndex(idx)} className={`w-full text-left p-4 rounded-xl text-xs transition-all flex items-center gap-4 group ${activeChapterIndex === idx ? 'bg-rose-600/10 text-rose-400 border border-rose-600/30 shadow-lg' : 'hover:bg-slate-800/50 text-slate-500'}`}>
+                      <span className="opacity-40 font-mono text-[10px]">{(idx + 1).toString().padStart(2, '0')}</span>
+                      <span className="truncate flex-1 font-bold">{ch.title || 'শিরোনামহীন পরিচ্ছেদ'}</span>
+                      <div className={`w-1.5 h-1.5 rounded-full ${activeChapterIndex === idx ? 'bg-rose-500' : 'bg-transparent group-hover:bg-slate-600'}`}></div>
                     </button>
                   ))}
                 </div>
@@ -298,202 +250,234 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Saved Projects List */}
-          <section className="pt-4 border-t border-slate-800">
-            <label className="text-[10px] font-bold text-slate-500 uppercase mb-3 block tracking-wider">Saved Manuscripts ({savedProjects.length})</label>
-            <div className="space-y-2">
-              {savedProjects.length === 0 ? (
-                <p className="text-[11px] text-slate-600 italic px-1">No saved stories yet.</p>
-              ) : (
-                savedProjects.map(p => (
-                  <div
-                    key={p.id}
-                    onClick={() => loadProject(p)}
-                    className={`p-3 rounded-lg border cursor-pointer transition flex flex-col gap-1 relative group ${activeProject?.id === p.id ? 'bg-slate-800 border-rose-500/50' : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'}`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <h3 className="text-xs font-bold text-slate-200 truncate pr-4">{p.title}</h3>
-                      <button 
-                        onClick={(e) => deleteProject(p.id, e)}
-                        className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-500 p-1 transition-opacity absolute top-1 right-1"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </button>
-                    </div>
-                    <div className="flex justify-between items-center mt-1">
-                      <span className="text-[9px] text-slate-500 px-1.5 py-0.5 bg-slate-950 rounded uppercase tracking-tighter">{p.genre}</span>
-                      <span className="text-[9px] text-slate-600 italic">
-                        {new Date(p.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
+          <section className="space-y-6">
+            <label className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] block">সংরক্ষিত লাইব্রেরি</label>
+            <div className="space-y-4">
+              {savedProjects.length === 0 && !activeProject && <p className="text-slate-600 text-[11px] text-center py-10 bg-slate-800/20 rounded-2xl border border-dashed border-slate-800">কোন কাহিনী পাওয়া যায়নি। শুরু করুন!</p>}
+              {savedProjects.map(p => (
+                <div key={p.id} onClick={() => loadProject(p)} className={`p-5 rounded-2xl border cursor-pointer transition-all flex flex-col gap-3 group relative ${activeProject?.id === p.id ? 'bg-slate-800/80 border-rose-500/50 shadow-xl' : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-800/30'}`}>
+                  <div className="flex justify-between items-start">
+                    <h3 className="text-sm font-bold truncate pr-10 text-slate-200">{p.title}</h3>
+                    <button onClick={e => deleteProject(p.id, e)} className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-500 transition-all absolute top-4 right-4" title="Delete"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeWidth={2}/></svg></button>
                   </div>
-                ))
-              )}
+                  <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-slate-500">
+                    <span className="px-2 py-0.5 bg-slate-950 rounded border border-slate-800/50">{p.genre}</span>
+                    <span className="opacity-60">{new Date(p.createdAt).toLocaleDateString('bn-BD')}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         </div>
-        
-        <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
-           <p className="text-[9px] text-slate-600 uppercase tracking-widest font-medium">Bengali Suite Pro</p>
-           <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
-        </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col relative overflow-hidden">
-        {/* Header */}
-        <header className="h-14 border-b border-slate-800 flex items-center justify-between px-4 bg-slate-900/50 backdrop-blur-md z-10">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-slate-800 rounded transition" title="Toggle Sidebar">
-              <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-            </button>
+      <main className="flex-1 flex flex-col relative overflow-hidden bg-[#010409]">
+        <header className="h-20 border-b border-slate-800 flex items-center justify-between px-10 bg-slate-900/40 backdrop-blur-3xl z-20 no-print">
+          <div className="flex items-center gap-8">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-3 hover:bg-slate-800 rounded-2xl transition text-slate-400 hover:text-rose-500" aria-label="Toggle Sidebar"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" /></svg></button>
             {activeProject && (
-              <div className="flex items-center gap-4">
-                 <input 
-                  value={activeProject.chapters[activeChapterIndex].title}
-                  onChange={(e) => {
+              <div className="flex flex-col">
+                 <input value={activeProject.chapters[activeChapterIndex].title} onChange={e => {
                     const chs = [...activeProject.chapters];
                     chs[activeChapterIndex].title = e.target.value;
                     setActiveProject({...activeProject, chapters: chs});
-                  }}
-                  className="bg-transparent font-bold text-slate-200 focus:outline-none border-b border-transparent focus:border-rose-500 transition-colors px-1"
-                />
-                {renderSaveIndicator()}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-             <button 
-                onClick={() => handleSaveProject(false)}
-                disabled={!activeProject || saveStatus === 'saving'}
-                className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded-lg text-xs font-bold transition border border-slate-700"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                {saveStatus === 'saving' ? 'Saving...' : 'Save'}
-              </button>
-
-             <button 
-                onClick={handleGenerate}
-                disabled={!activeProject || isGenerating}
-                className="bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 px-6 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2 shadow-lg shadow-rose-900/20"
-              >
-                {isGenerating ? (
-                   <>
-                    <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Generating...
-                   </>
-                ) : 'AI Write Chapter'}
-              </button>
-              <button className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg font-bold text-sm transition text-slate-400 border border-slate-700">
-                Export
-              </button>
-          </div>
-        </header>
-
-        {/* Editor Area */}
-        <div className="flex-1 p-6 overflow-hidden flex flex-col">
-          {error && (
-            <div className={`mb-4 p-3 border text-sm rounded-lg animate-fade-in flex justify-between items-center ${error.includes("success") ? 'bg-emerald-900/30 border-emerald-800 text-emerald-200' : 'bg-red-900/30 border-red-800 text-red-200'}`}>
-              <span>{error}</span>
-              <button onClick={() => setError(null)} className="text-xs opacity-50 hover:opacity-100">✕</button>
-            </div>
-          )}
-          
-          {activeProject ? (
-            <div className="flex-1 min-h-0 flex flex-col gap-4 animate-fade-in">
-              <div className="grid grid-cols-4 gap-4 mb-2 p-3 bg-slate-900/30 rounded-xl border border-slate-800/50">
-                 <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Creativity</label>
-                    <input type="range" min="0.1" max="1" step="0.1" value={settings.creativity} onChange={(e) => setSettings({...settings, creativity: parseFloat(e.target.value)})} className="accent-rose-500 h-1" />
-                 </div>
-                 <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Story Tone</label>
-                    <select 
-                      value={settings.tone} 
-                      onChange={(e) => setSettings({...settings, tone: e.target.value})} 
-                      className="bg-slate-800 text-[10px] p-1.5 rounded border border-slate-700 focus:border-rose-500 outline-none"
-                    >
-                      <option value="Passionate and Intense">Passionate (তীব্র আবেগ)</option>
-                      <option value="Suspenseful and Thrilling">Suspenseful (রোমাঞ্চকর)</option>
-                      <option value="Melancholy and Sad">Melancholy (বিষাদময়)</option>
-                      <option value="Romantic and Sweet">Romantic (রোমান্টিক)</option>
-                      <option value="Erotic and Sensual">Erotic (উত্তেজনাপূর্ণ)</option>
-                      <option value="Dramatic and Bold">Dramatic (নাটকীয়)</option>
-                      <option value="Poetic and Flowery">Poetic (কাব্যিক)</option>
-                      <option value="Mysterious and Dark">Mysterious (রহস্যময়)</option>
-                      <option value="Action-packed and Fast">Action (অ্যাকশন)</option>
-                    </select>
-                 </div>
-                 <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Chapter Length</label>
-                    <select value={settings.length} onChange={(e) => setSettings({...settings, length: e.target.value as any})} className="bg-slate-800 text-[10px] p-1.5 rounded border border-slate-700 focus:border-rose-500 outline-none">
-                      <option>Short</option>
-                      <option>Medium</option>
-                      <option>Long</option>
-                      <option>Epic</option>
-                    </select>
-                 </div>
-                 <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Language Style</label>
-                    <select value={activeProject.languageStyle} onChange={(e) => setActiveProject({...activeProject, languageStyle: e.target.value as any})} className="bg-slate-800 text-[10px] p-1.5 rounded border border-slate-700 focus:border-rose-500 outline-none">
-                      <option>Modern/Colloquial</option>
-                      <option>Cholitobhasha</option>
-                      <option>Sadhu</option>
-                    </select>
-                 </div>
-              </div>
-              
-              <Editor 
-                content={activeProject.chapters[activeChapterIndex].content}
-                onChange={updateChapterContent}
-                onRewrite={handleRewrite}
-                isGenerating={isGenerating}
-              />
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
-              <div className="relative">
-                <div className="absolute inset-0 bg-rose-500 blur-3xl opacity-10 animate-pulse"></div>
-                <div className="w-40 h-40 bg-slate-900 rounded-full flex items-center justify-center text-rose-500 border-2 border-slate-800 shadow-2xl relative z-10">
-                  <svg className="w-20 h-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
-                </div>
-              </div>
-              <div className="max-w-xl">
-                <h2 className="text-4xl font-black mb-4 bg-clip-text text-transparent bg-gradient-to-r from-rose-400 to-orange-300">কল্পসাগর এআই: আপনার গল্পের জগত</h2>
-                <p className="text-slate-400 text-lg mb-8 leading-relaxed">
-                  আধুনিক এআই প্রযুক্তির সাহায্যে তৈরি করুন দীর্ঘ ও উন্নতমানের বাংলা উপন্যাস। রোমান্স, অ্যাডাল্ট ড্রামা এবং বাস্তবধর্মী বর্ণনায় সমৃদ্ধ কাহিনী রচনার এক অনন্য ডিজিটাল প্ল্যাটফর্ম।
-                </p>
-                <div className="flex flex-wrap gap-4 justify-center">
-                  <button onClick={createNewProject} className="px-10 py-4 bg-rose-600 hover:bg-rose-500 rounded-full text-lg font-bold shadow-2xl shadow-rose-900/50 transition transform hover:scale-105 active:scale-95 flex items-center gap-3">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                    নতুন কাহিনী শুরু করুন
-                  </button>
-                  {savedProjects.length > 0 && (
-                     <div className="flex flex-col items-center gap-2">
-                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Continue writing</span>
-                        <div className="flex gap-2">
-                           {savedProjects.slice(0, 2).map(p => (
-                             <button 
-                                key={p.id}
-                                onClick={() => loadProject(p)}
-                                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-2"
-                             >
-                               {p.title}
-                             </button>
-                           ))}
-                        </div>
-                     </div>
+                  }} className="bg-transparent font-black text-white text-2xl focus:outline-none focus:border-b-2 border-rose-500 transition-all max-w-[300px] lg:max-w-[450px]" placeholder="Chapter Title" />
+                
+                <div className="flex items-center gap-3 mt-1.5">
+                  <span className={`text-[10px] font-black uppercase tracking-[0.15em] transition-all duration-300 flex items-center gap-2
+                    ${saveStatus === 'saved' ? 'text-emerald-500' : 
+                      saveStatus === 'saving' ? 'text-rose-400 animate-pulse' : 
+                      saveStatus === 'unsaved' ? 'text-amber-500' : 'text-slate-600'}`}>
+                    {saveStatus === 'saved' ? '✓ সংরক্ষিত' : saveStatus === 'saving' ? 'সংরক্ষণ হচ্ছে...' : saveStatus === 'unsaved' ? 'অসংরক্ষিত পরিবর্তন' : 'ক্লাউড সিঙ্ক চালু'}
+                  </span>
+                  {lastSavedTime && (
+                    <span className="text-[9px] text-slate-600 font-bold uppercase tracking-widest opacity-60">
+                      • {lastSavedTime}
+                    </span>
                   )}
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+          
+          <div className="flex items-center gap-3">
+             {activeProject && (
+               <div className="flex items-center gap-2 mr-6">
+                 <button onClick={() => handleSaveProject(false)} className="px-4 py-2.5 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[10px] font-black border border-slate-700 uppercase tracking-widest">সেভ করুন</button>
+                 <button onClick={exportWord} className="px-4 py-2.5 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[10px] font-black border border-slate-700 uppercase tracking-widest">Word</button>
+                 <button onClick={() => window.print()} className="px-4 py-2.5 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[10px] font-black border border-slate-700 uppercase tracking-widest">প্রিন্ট</button>
+               </div>
+             )}
+             <button onClick={handleGenerate} disabled={!activeProject || isGenerating} className="bg-rose-600 hover:bg-rose-500 disabled:bg-slate-800 disabled:opacity-50 px-10 py-3.5 rounded-2xl font-black text-sm transition-all flex items-center gap-4 shadow-2xl shadow-rose-900/50 active:scale-95 text-white uppercase tracking-wider">
+               {isGenerating && (
+                 <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                 </svg>
+               )}
+               {isGenerating ? 'জেনারেট হচ্ছে...' : 'AI রাইট করুন'}
+             </button>
+          </div>
+        </header>
+
+        <div className="flex-1 p-8 lg:p-12 flex flex-col gap-8 overflow-hidden">
+           {error && (
+             <div className={`p-5 rounded-2xl border flex justify-between items-center animate-fade-in no-print ${error.type === 'success' ? 'bg-emerald-950/30 border-emerald-800/50 text-emerald-400' : 'bg-rose-950/30 border-rose-800/50 text-rose-400'}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-2 h-2 rounded-full ${error.type === 'success' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                  <span className="text-sm font-bold tracking-tight">{error.msg}</span>
+                </div>
+                <button onClick={() => setError(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all">✕</button>
+             </div>
+           )}
+
+           {activeProject ? (
+             <div className="flex-1 min-h-0 flex flex-col gap-8 animate-fade-in overflow-y-auto custom-scrollbar pb-16 no-print">
+               
+               <div className="flex items-center justify-between no-print">
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => setShowChapterSettings(false)} 
+                      className={`px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] transition-all ${!showChapterSettings ? 'bg-rose-600 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      Project Settings
+                    </button>
+                    <button 
+                      onClick={() => setShowChapterSettings(true)} 
+                      className={`px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center gap-2 ${showChapterSettings ? 'bg-rose-600 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      Chapter Settings {hasChapterOverrides && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></span>}
+                    </button>
+                  </div>
+                  {showChapterSettings && hasChapterOverrides && (
+                    <button onClick={clearChapterOverrides} className="text-[9px] text-rose-500 font-black uppercase tracking-widest hover:underline">Reset to Default</button>
+                  )}
+               </div>
+
+               <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 p-7 bg-slate-900/50 rounded-3xl border border-slate-800/50 backdrop-blur-2xl shadow-2xl">
+                 {!showChapterSettings ? (
+                   <>
+                    {/* Project Level Settings */}
+                    <div className="flex flex-col gap-3">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Creativity</label>
+                          <span className="text-[10px] text-rose-500 font-black">{(activeProject.settings.creativity * 100).toFixed(0)}%</span>
+                        </div>
+                        <input type="range" min="0.5" max="1" step="0.05" value={activeProject.settings.creativity} onChange={e => setActiveProject({...activeProject, settings: {...activeProject.settings, creativity: parseFloat(e.target.value)}})} className="accent-rose-500 h-2 bg-slate-800 rounded-full cursor-pointer shadow-inner" />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Maturity</label>
+                        <select value={activeProject.maturityLevel} onChange={e => setActiveProject({...activeProject, maturityLevel: e.target.value as MaturityLevel})} className="bg-slate-950/80 text-xs font-bold p-3 rounded-xl border border-slate-800 text-slate-300 outline-none focus:border-rose-500 transition-all appearance-none cursor-pointer">
+                          <option value="General">General (সবাই)</option><option value="Adult">Adult (প্রাপ্তবয়স্ক)</option><option value="18+ Explicit">18+ (সতর্কতা)</option>
+                        </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Mood/Tone</label>
+                        <select value={activeProject.settings.tone} onChange={e => setActiveProject({...activeProject, settings: {...activeProject.settings, tone: e.target.value}})} className="bg-slate-950/80 text-xs font-bold p-3 rounded-xl border border-slate-800 text-slate-300 outline-none focus:border-rose-500 transition-all appearance-none cursor-pointer">
+                          <option value="Passionate and Descriptive">প্যাশনেট</option><option value="Dark and Thrilling">থ্রিলার/ডার্ক</option><option value="Emotional and Deep">আবেগময়</option><option value="Sensual and Romantic">রোমান্টিক</option>
+                        </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-[10px] text-slate-500 uppercase font-black tracking-widest">ভাষা শৈলী</label>
+                        <select value={activeProject.languageStyle} onChange={e => setActiveProject({...activeProject, languageStyle: e.target.value as LanguageStyle})} className="bg-slate-950/80 text-xs font-bold p-3 rounded-xl border border-slate-800 text-slate-300 outline-none focus:border-rose-500 transition-all appearance-none cursor-pointer">
+                          <option value="Modern/Colloquial">আধুনিক</option><option value="Sadhu">সাধু ভাষা</option><option value="Cholitobhasha">চলিত ভাষা</option>
+                        </select>
+                    </div>
+                   </>
+                 ) : (
+                   <>
+                    {/* Chapter Specific Overrides */}
+                    <div className="flex flex-col gap-3">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-rose-500 uppercase font-black tracking-widest">Chapter Creativity</label>
+                          <span className="text-[10px] text-rose-500 font-black">{( (activeChapter?.settings?.creativity || activeProject.settings.creativity) * 100).toFixed(0)}%</span>
+                        </div>
+                        <input type="range" min="0.5" max="1" step="0.05" value={activeChapter?.settings?.creativity || activeProject.settings.creativity} onChange={e => updateChapterSetting('creativity', parseFloat(e.target.value))} className="accent-rose-500 h-2 bg-slate-800 rounded-full cursor-pointer shadow-inner" />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-[10px] text-rose-500 uppercase font-black tracking-widest">Chapter Maturity</label>
+                        <select value={activeChapter?.maturityLevel || activeProject.maturityLevel} onChange={e => updateChapterOverride('maturityLevel', e.target.value as MaturityLevel)} className="bg-slate-950/80 text-xs font-bold p-3 rounded-xl border border-rose-500/30 text-rose-100 outline-none focus:border-rose-500 transition-all appearance-none cursor-pointer">
+                          <option value="General">General (সবাই)</option><option value="Adult">Adult (প্রাপ্তবয়স্ক)</option><option value="18+ Explicit">18+ (সতর্কতা)</option>
+                        </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-[10px] text-rose-500 uppercase font-black tracking-widest">Chapter Tone</label>
+                        <select value={activeChapter?.settings?.tone || activeProject.settings.tone} onChange={e => updateChapterSetting('tone', e.target.value)} className="bg-slate-950/80 text-xs font-bold p-3 rounded-xl border border-rose-500/30 text-rose-100 outline-none focus:border-rose-500 transition-all appearance-none cursor-pointer">
+                          <option value="Passionate and Descriptive">প্যাশনেট</option><option value="Dark and Thrilling">থ্রিলার/ডার্ক</option><option value="Emotional and Deep">আবেগময়</option><option value="Sensual and Romantic">রোমান্টিক</option>
+                        </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-[10px] text-rose-500 uppercase font-black tracking-widest">Chapter ভাষা শৈলী</label>
+                        <select value={activeChapter?.languageStyle || activeProject.languageStyle} onChange={e => updateChapterOverride('languageStyle', e.target.value as LanguageStyle)} className="bg-slate-950/80 text-xs font-bold p-3 rounded-xl border border-rose-500/30 text-rose-100 outline-none focus:border-rose-500 transition-all appearance-none cursor-pointer">
+                          <option value="Modern/Colloquial">আধুনিক</option><option value="Sadhu">সাধু ভাষা</option><option value="Cholitobhasha">চলিত ভাষা</option>
+                        </select>
+                    </div>
+                   </>
+                 )}
+               </div>
+
+               <div className="p-7 bg-slate-900/50 rounded-3xl border border-slate-800/50 backdrop-blur-2xl shadow-2xl space-y-3">
+                  <label className="text-[10px] text-slate-500 uppercase font-black tracking-widest block">
+                    {showChapterSettings ? 'Chapter AI নির্দেশ (Custom Prompt Override)' : 'Project AI নির্দেশ (Global Prompt)'}
+                  </label>
+                  <textarea 
+                    value={showChapterSettings ? (activeChapter?.settings?.customSystemPrompt || '') : (activeProject.settings.customSystemPrompt || '')} 
+                    onChange={e => {
+                      if (showChapterSettings) {
+                        updateChapterSetting('customSystemPrompt', e.target.value);
+                      } else {
+                        setActiveProject({...activeProject, settings: {...activeProject.settings, customSystemPrompt: e.target.value}});
+                      }
+                    }} 
+                    className={`w-full bg-slate-950/50 border rounded-2xl p-4 text-xs h-24 outline-none resize-none text-slate-300 transition-all placeholder:text-slate-700 ${showChapterSettings ? 'border-rose-500/30 focus:border-rose-500' : 'border-slate-700/50 focus:border-rose-500'}`}
+                    placeholder={showChapterSettings ? "এই পরিচ্ছেদের জন্য বিশেষ ইনস্ট্রাকশন দিন..." : "পুরো উপন্যাসের জন্য এআই গাইডলাইন দিন..."}
+                  />
+               </div>
+               
+               <div className="flex-1 min-h-[600px] shadow-3xl">
+                  <Editor 
+                    content={activeProject.chapters[activeChapterIndex].content} 
+                    onChange={val => {
+                      const chs = [...activeProject.chapters];
+                      chs[activeChapterIndex].content = val;
+                      setActiveProject({...activeProject, chapters: chs});
+                    }} 
+                    onRewrite={handleRewrite} 
+                    isGenerating={isGenerating} 
+                  />
+               </div>
+             </div>
+           ) : (
+             <div className="flex-1 flex flex-col items-center justify-center text-center space-y-12 animate-fade-in no-print">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-rose-600/30 blur-[100px] rounded-full animate-pulse"></div>
+                  <div className="w-48 h-48 bg-rose-600/10 rounded-[4.5rem] border-2 border-rose-500/30 flex items-center justify-center shadow-3xl relative z-10 backdrop-blur-sm">
+                     <svg className="w-24 h-24 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                  </div>
+                </div>
+                <div className="space-y-6">
+                  <h2 className="text-7xl font-black bg-clip-text text-transparent bg-gradient-to-br from-rose-400 via-rose-600 to-rose-900 tracking-tighter uppercase">গল্পসাগর প্রো</h2>
+                  <p className="text-slate-500 text-2xl max-w-2xl mx-auto font-medium leading-relaxed tracking-tight">আপনার কল্পনার সীমানা ছাড়িয়ে যাক। সেরা মানের ১৮+ বাংলা কাহিনী ও উপন্যাসের জন্য বিশ্বের সবথেকে শক্তিশালী এআই লেখনী প্ল্যাটফর্ম।</p>
+                </div>
+                <button onClick={createNewProject} className="px-20 py-7 bg-rose-600 hover:bg-rose-500 rounded-[2.5rem] text-3xl font-black transition-all shadow-3xl shadow-rose-900/60 hover:scale-105 active:scale-95 flex items-center gap-8 text-white group">
+                  নতুন কাহিনী শুরু করুন
+                  <svg className="w-8 h-8 group-hover:translate-x-3 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 5l7 7m0 0l-7 7m7-7H3" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+             </div>
+           )}
         </div>
       </main>
+
+      {/* Hidden Print Container */}
+      <div className="hidden print-only bg-white p-20 text-black bengali-text">
+        {activeProject && (
+          <div>
+            <h1 className="text-4xl font-bold mb-10 text-center">{activeProject.title}</h1>
+            <h2 className="text-2xl font-bold mb-6 border-b-2 border-black pb-2">{activeProject.chapters[activeChapterIndex].title}</h2>
+            <div dangerouslySetInnerHTML={{ __html: activeProject.chapters[activeChapterIndex].content }} className="text-xl leading-relaxed"></div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

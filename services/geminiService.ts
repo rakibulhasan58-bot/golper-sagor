@@ -1,79 +1,124 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { StoryGenre, StoryChapter, GenerationSettings } from "../types";
+import { GoogleGenAI, Modality } from "@google/genai";
+import { StoryGenre, GenerationSettings, MaturityLevel, LanguageStyle } from "../types";
 
-// Initialize the Gemini API client using the environment variable directly.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+/**
+ * Generates high-quality Bengali story content using gemini-3-pro-preview.
+ * Specialized for Adult 18+ novels (Uponnash).
+ */
 export const generateStoryChapter = async (
   projectTitle: string,
   chapterTitle: string,
   context: string,
   genre: StoryGenre,
   settings: GenerationSettings,
-  maturity: string,
-  language: string,
+  maturity: MaturityLevel,
+  language: LanguageStyle,
   previousSummary?: string
-) => {
+): Promise<string | undefined> => {
   const model = "gemini-3-pro-preview";
   
-  const systemPrompt = `You are a world-class Bengali novelist specializing in high-quality literature. 
-  Your task is to write a deeply immersive, emotionally resonant, and descriptive chapter in Bengali.
-  Style: ${language}
-  Genre: ${genre}
-  Maturity: ${maturity}. (If adult/18+, focus on intense emotional connection, sensual tension, and detailed physical descriptions while maintaining high literary quality).
-  
-  Instructions:
-  1. Use rich, evocative Bengali vocabulary.
-  2. Focus on "Show, Don't Tell".
-  3. Ensure the dialogue feels natural for the specified style.
-  4. The tone should be ${settings.tone}.
-  5. Language must be strictly Bengali (Bangla).`;
+  const systemPrompt = `You are a world-class Bengali novelist renowned for writing epic-length Adult (18+) fiction, complex novels (Boro Uponnash), and deep stories (Boro Kahini). 
+
+Tone & Style: ${settings.tone}.
+Language Style: ${language}.
+Maturity Level: ${maturity} (Ensure appropriate depth, emotional intensity, and descriptive sensuality for this rating).
+Genre: ${genre}.
+
+${settings.customSystemPrompt ? `Special Style Instructions: ${settings.customSystemPrompt}` : ''}
+
+Strict Literary Rules:
+1. Write in rich, flowery, and evocative Bengali prose.
+2. Focus on internal monologues, sensory details, and atmospheric descriptions.
+3. Chapters must feel part of a larger, cohesive 'Boro Uponnash'.
+4. Use authentic Bengali idioms and sophisticated vocabulary.
+5. Avoid repetition. Ensure the prose flows naturally for an adult audience.`;
 
   const prompt = `
-  Write a ${settings.length} novel chapter.
-  Book Title: ${projectTitle}
-  Chapter Title: ${chapterTitle}
-  Context/Plot Points: ${context}
-  ${previousSummary ? `Previous Events Summary: ${previousSummary}` : ''}
+  Project: ${projectTitle}
+  Chapter: ${chapterTitle}
   
-  Start writing the chapter immediately. Ensure it is long, detailed, and captivating.`;
+  Instructions: Write a ${settings.length} novel chapter in Bengali.
+  
+  Context of the Novel: ${context}
+  ${previousSummary ? `Recap of previous events: ${previousSummary}` : ''}
+  
+  Generate the full, detailed chapter text now in high-quality Bengali.`;
 
-  // Use generateContent for complex creative writing tasks with a reasoning budget.
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      systemInstruction: systemPrompt,
-      temperature: settings.creativity,
-      thinkingConfig: { thinkingBudget: 32768 } // Max budget for gemini-3-pro-preview reasoning.
-    },
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: settings.creativity,
+        maxOutputTokens: 40000, 
+        thinkingConfig: { thinkingBudget: 32768 } 
+      },
+    });
 
-  return response.text;
+    return response.text;
+  } catch (error) {
+    console.error("Critical Generation Error:", error);
+    throw error;
+  }
 };
 
+/**
+ * Rewrites or edits content based on specific user feedback.
+ */
 export const rewriteContent = async (
   content: string,
   instruction: string,
   genre: StoryGenre
-) => {
+): Promise<string | undefined> => {
   const model = "gemini-3-flash-preview";
   const prompt = `
-  Original Content: ${content}
-  Instruction: ${instruction}
-  Genre Context: ${genre}
+  Current Content: ${content}
+  Edit Instruction: ${instruction}
   
-  Rewrite the content in Bengali while following the instruction precisely. Maintain the tone and flow.`;
+  Rewrite the content in Bengali according to the instruction while maintaining the ${genre} (Adult 18+) literary tone.`;
 
-  // Use flash model for faster editing and rewriting tasks.
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      systemInstruction: "You are an expert Bengali editor and ghostwriter.",
-    },
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        systemInstruction: "You are a master editor of Bengali adult fiction. Polish the text to perfection.",
+      },
+    });
 
-  return response.text;
+    return response.text;
+  } catch (error) {
+    console.error("Rewrite Error:", error);
+    throw error;
+  }
+};
+
+/**
+ * High-quality Bengali Text-to-Speech using the preview TTS model.
+ * Returns raw base64 PCM data.
+ */
+export const generateSpeech = async (text: string): Promise<string | undefined> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: `Read this Bengali novel excerpt naturally with emotion: ${text.slice(0, 3500)}` }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }, 
+          },
+        },
+      },
+    });
+
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  } catch (error) {
+    console.error("TTS System Error:", error);
+    throw error;
+  }
 };

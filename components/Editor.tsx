@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import { generateSpeech } from '../services/geminiService';
 
 interface EditorProps {
   content: string;
@@ -8,11 +9,74 @@ interface EditorProps {
   isGenerating: boolean;
 }
 
+// Utility functions for decoding raw PCM audio from Gemini TTS
+function decodeBase64ToUint8(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number,
+  numChannels: number,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
+
 const Editor: React.FC<EditorProps> = ({ content, onChange, onRewrite, isGenerating }) => {
   const [instruction, setInstruction] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  // Sync content from props if it changes externally (e.g. AI generation)
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (SpeechRecognition && !recognitionRef.current) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'bn-BD';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) transcript += event.results[i][0].transcript;
+        }
+        if (transcript) {
+          // Use insertText for better cursor handling
+          document.execCommand('insertText', false, transcript + ' ');
+          handleInput();
+        }
+      };
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = () => setIsListening(false);
+      
+      recognitionRef.current = recognition;
+    }
+  }, [SpeechRecognition]);
+
   useEffect(() => {
     if (editorRef.current && content !== editorRef.current.innerHTML) {
       editorRef.current.innerHTML = content;
@@ -27,72 +91,107 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, onRewrite, isGenerat
 
   const execCommand = (command: string, value: string = '') => {
     document.execCommand(command, false, value);
-    if (editorRef.current) {
-      editorRef.current.focus();
+    if (editorRef.current) editorRef.current.focus();
+  };
+
+  const getWordCount = (html: string) => {
+    const text = html.replace(/<[^>]*>?/gm, ' ');
+    return text.trim().split(/\s+/).filter(x => x).length;
+  };
+
+  const toggleListening = () => {
+    if (!recognitionRef.current) return alert('Your browser does not support Bengali Speech Recognition.');
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      recognitionRef.current.start();
     }
   };
 
-  // Helper to strip HTML for word count
-  const getWordCount = (html: string) => {
-    const text = html.replace(/<[^>]*>?/gm, ' ');
-    return text.split(/\s+/).filter(x => x).length;
+  const handleListen = async () => {
+    if (isPlaying) {
+      if (currentSourceRef.current) {
+        currentSourceRef.current.stop();
+      }
+      setIsPlaying(false);
+      return;
+    }
+
+    const plainText = editorRef.current?.innerText || '';
+    if (!plainText.trim()) return;
+
+    try {
+      setIsPlaying(true);
+      const base64Audio = await generateSpeech(plainText);
+      if (base64Audio) {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        }
+        const ctx = audioContextRef.current;
+        const bytes = decodeBase64ToUint8(base64Audio);
+        const buffer = await decodeAudioData(bytes, ctx, 24000, 1);
+        
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.onended = () => setIsPlaying(false);
+        source.start();
+        currentSourceRef.current = source;
+      } else {
+        setIsPlaying(false);
+      }
+    } catch (e) {
+      console.error("Playback error:", e);
+      setIsPlaying(false);
+      alert('প্লেব্যাক ত্রুটি। অনুগ্রহ করে আবার চেষ্টা করুন।');
+    }
   };
 
-  // Fix: Adding "?" to children to satisfy TypeScript prop checks in nested JSX calls
-  const ToolbarButton = ({ onClick, children, title }: { onClick: () => void, children?: React.ReactNode, title: string }) => (
-    <button 
-      onClick={(e) => { e.preventDefault(); onClick(); }}
-      className="p-1.5 bg-slate-700 hover:bg-rose-600 rounded text-slate-200 transition-all flex items-center justify-center min-w-[32px]"
-      title={title}
-    >
-      {children}
-    </button>
-  );
-
   return (
-    <div className="flex flex-col h-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden shadow-inner">
-      <div className="p-2 bg-slate-800 border-b border-slate-700 flex flex-wrap gap-2 items-center justify-between sticky top-0 z-20">
+    <div className="flex flex-col h-full bg-slate-900 border border-slate-700/50 rounded-2xl overflow-hidden shadow-2xl relative transition-all duration-300">
+      <div className="p-3 bg-slate-800/80 backdrop-blur-md border-b border-slate-700 flex flex-wrap gap-3 items-center justify-between sticky top-0 z-20">
         <div className="flex flex-wrap gap-1.5">
-          <ToolbarButton onClick={() => execCommand('bold')} title="Bold (Ctrl+B)">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/></svg>
-          </ToolbarButton>
-          <ToolbarButton onClick={() => execCommand('italic')} title="Italic (Ctrl+I)">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/></svg>
-          </ToolbarButton>
-          <ToolbarButton onClick={() => execCommand('underline')} title="Underline (Ctrl+U)">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z"/></svg>
-          </ToolbarButton>
-          <ToolbarButton onClick={() => execCommand('strikeThrough')} title="Strikethrough">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M10 19h4v-3h-4v3zM5 4v3h5v3h4V7h5V4H5zM3 14h18v-2H3v2z"/></svg>
-          </ToolbarButton>
-          <div className="w-px h-6 bg-slate-700 mx-1"></div>
-          <ToolbarButton onClick={() => execCommand('insertUnorderedList')} title="Bulleted List">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
-          </ToolbarButton>
-          <ToolbarButton onClick={() => execCommand('insertOrderedList')} title="Numbered List">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M2 17h2v.5H3v1h1v.5H2v1h3v-4H2v1zm1-9h1V4H2v1h1v3zm-1 3h1.8L2 13.1v.9h3v-1H3.2l2.8-2.1V10H2v1zm5-6v2h14V5H7zm0 14h14v-2H7v2zm0-6h14v-2H7v2z"/></svg>
-          </ToolbarButton>
+          <button onClick={() => execCommand('bold')} className="p-2 hover:bg-slate-700 rounded-lg text-slate-300" title="Bold"><b>B</b></button>
+          <button onClick={() => execCommand('italic')} className="p-2 hover:bg-slate-700 rounded-lg text-slate-300" title="Italic"><i>I</i></button>
+          <button onClick={() => execCommand('underline')} className="p-2 hover:bg-slate-700 rounded-lg text-slate-300" title="Underline"><u>U</u></button>
+          <div className="w-px h-6 bg-slate-700 mx-1 self-center"></div>
+          
+          <button 
+            onClick={toggleListening} 
+            className={`p-2 rounded-lg transition-all ${isListening ? 'bg-rose-600 text-white animate-pulse' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+            title="Speech-to-Story (ভয়েস ইনপুট)"
+          >
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+          </button>
+
+          <button 
+            onClick={handleListen} 
+            className={`p-2 rounded-lg transition-all ${isPlaying ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+            title={isPlaying ? "বন্ধ করুন" : "শুনুন (TTS)"}
+          >
+             {isPlaying ? (
+               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+             ) : (
+               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+             )}
+          </button>
         </div>
         
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center flex-1 max-w-xl">
           <input 
             type="text"
-            placeholder="Rewrite instruction (e.g., make it more descriptive...)"
+            placeholder="রিরাইট নির্দেশ দিন..."
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
-            className="bg-slate-950 border border-slate-600 rounded px-3 py-1.5 text-xs w-48 lg:w-64 focus:outline-none focus:border-rose-500 transition-colors"
+            onKeyDown={(e) => e.key === 'Enter' && onRewrite(instruction)}
+            className="bg-slate-950/50 border border-slate-600/50 rounded-xl px-4 py-2 text-xs w-full focus:outline-none focus:border-rose-500 text-slate-100 placeholder:text-slate-500 transition-all"
           />
           <button 
             onClick={() => onRewrite(instruction)}
             disabled={isGenerating || !instruction}
-            className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 rounded text-xs font-bold transition flex items-center gap-2"
+            className="px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-2 text-white shadow-lg shadow-rose-900/20 active:scale-95 whitespace-nowrap"
           >
-            {isGenerating ? (
-              <svg className="animate-spin h-3 w-3 text-white" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            ) : 'AI Rewrite'}
+            {isGenerating ? 'অপেক্ষা...' : 'Magic Edit'}
           </button>
         </div>
       </div>
@@ -102,36 +201,17 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, onRewrite, isGenerat
         contentEditable={true}
         onInput={handleInput}
         onBlur={handleInput}
-        className="flex-1 p-8 bg-slate-950 text-slate-200 bengali-text text-xl overflow-y-auto focus:outline-none focus:ring-1 focus:ring-rose-500/20"
-        style={{ minHeight: '300px' }}
-        data-placeholder="আপনার কাহিনী এখানে শুরু করুন..."
+        className="flex-1 p-12 bg-slate-950 text-slate-200 bengali-text text-xl overflow-y-auto focus:outline-none selection:bg-rose-500/40"
+        style={{ minHeight: '400px' }}
+        data-placeholder="আপনার অ্যাডাল্ট উপন্যাসের বর্ণনা এখানে শুরু করুন..."
       />
       
-      <div className="p-3 bg-slate-800 border-t border-slate-700 text-[10px] text-slate-500 font-mono flex justify-between uppercase tracking-widest">
-        <span>Words: <span className="text-rose-500 font-bold">{getWordCount(content)}</span></span>
-        <span>Rich Text Enabled | Bengali Optimized</span>
+      <div className="p-3 bg-slate-800/50 border-t border-slate-700 flex justify-between items-center px-8 z-10 no-print">
+        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+           শব্দ সংখ্যা: <span className="text-rose-500">{getWordCount(content)}</span>
+        </span>
+        <span className="text-[9px] text-slate-600 uppercase font-black tracking-widest">Premium Bengali Fiction Suite v4.0</span>
       </div>
-      
-      <style>{`
-        [contentEditable]:empty:before {
-          content: attr(data-placeholder);
-          color: #475569;
-          cursor: text;
-        }
-        [contentEditable] ul {
-          list-style-type: disc;
-          padding-left: 1.5rem;
-          margin: 1rem 0;
-        }
-        [contentEditable] ol {
-          list-style-type: decimal;
-          padding-left: 1.5rem;
-          margin: 1rem 0;
-        }
-        [contentEditable] b, [contentEditable] strong {
-          color: #f1f5f9;
-        }
-      `}</style>
     </div>
   );
 };
