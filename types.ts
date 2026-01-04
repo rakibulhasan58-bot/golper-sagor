@@ -4,6 +4,13 @@ export type MaturityLevel = 'General' | 'Adult' | '18+ Explicit';
 export type LanguageStyle = 'Sadhu' | 'Cholitobhasha' | 'Modern/Colloquial';
 export type ChapterLength = 'Short' | 'Medium' | 'Long' | 'Epic';
 
+export interface GenerationSettings {
+  creativity: number;
+  length: ChapterLength;
+  tone: string;
+  customSystemPrompt?: string;
+}
+
 export interface StoryChapter {
   id: string;
   title: string;
@@ -13,13 +20,6 @@ export interface StoryChapter {
   maturityLevel?: MaturityLevel;
   languageStyle?: LanguageStyle;
   settings?: GenerationSettings;
-}
-
-export interface GenerationSettings {
-  creativity: number;
-  length: ChapterLength;
-  tone: string;
-  customSystemPrompt?: string;
 }
 
 export interface StoryProject {

@@ -19,23 +19,25 @@
             background-color: #020617;
             color: #f8fafc;
             overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
         .bengali-text {
             font-family: 'Noto Sans Bengali', sans-serif;
             line-height: 2;
             letter-spacing: 0.015em;
         }
-        ::-webkit-scrollbar {
+        .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
         }
-        ::-webkit-scrollbar-track {
-            background: #0f172a;
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.3);
         }
-        ::-webkit-scrollbar-thumb {
+        .custom-scrollbar::-webkit-scrollbar-thumb {
             background: #334155;
             border-radius: 10px;
         }
-        ::-webkit-scrollbar-thumb:hover {
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #e11d48;
         }
         @keyframes fadeIn {
@@ -45,7 +47,7 @@
         .animate-fade-in {
             animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
-        .editor-container [contenteditable]:empty:before {
+        [contenteditable]:empty:before {
             content: attr(data-placeholder);
             color: #475569;
             font-style: italic;
@@ -55,6 +57,13 @@
             .no-print { display: none !important; }
             body { background: white; color: black; overflow: visible; }
             .print-only { display: block !important; }
+        }
+        /* Mobile fixes */
+        @media (max-width: 640px) {
+            .bengali-text {
+                font-size: 16px !important;
+                line-height: 1.8 !important;
+            }
         }
     </style>
 <script type="importmap">

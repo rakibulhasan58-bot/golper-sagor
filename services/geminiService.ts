@@ -2,11 +2,15 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { StoryGenre, GenerationSettings, MaturityLevel, LanguageStyle } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+/**
+ * Standard initialization.
+ * Using gemini-3-flash-preview for general speed and gemini-3-pro-preview for depth.
+ */
+const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
- * Generates high-quality Bengali story content using gemini-3-pro-preview.
- * Specialized for Adult 18+ novels (Uponnash).
+ * Generates high-quality Bengali story content.
+ * Adheres to "Super Fast" and "Best Quality" by leveraging gemini-3-flash-preview with a thinking budget.
  */
 export const generateStoryChapter = async (
   projectTitle: string,
@@ -18,75 +22,130 @@ export const generateStoryChapter = async (
   language: LanguageStyle,
   previousSummary?: string
 ): Promise<string | undefined> => {
-  const model = "gemini-3-pro-preview";
+  const ai = getAI();
+  // Using gemini-3-flash-preview as requested for "super fast" performance
+  const model = "gemini-3-flash-preview";
   
-  const systemPrompt = `You are a world-class Bengali novelist renowned for writing epic-length Adult (18+) fiction, complex novels (Boro Uponnash), and deep stories (Boro Kahini). 
+  const systemInstruction = `You are an elite Bengali novelist specializing in long-form fictional narratives ("Boro Uponnash").
+Your prose is rich, descriptive, and culturally authentic.
 
-Tone & Style: ${settings.tone}.
+Tone: ${settings.tone}.
 Language Style: ${language}.
-Maturity Level: ${maturity} (Ensure appropriate depth, emotional intensity, and descriptive sensuality for this rating).
+Maturity Level: ${maturity}.
 Genre: ${genre}.
+Estimated Length: ${settings.length}.
 
-${settings.customSystemPrompt ? `Special Style Instructions: ${settings.customSystemPrompt}` : ''}
+${settings.customSystemPrompt ? `Special Directives: ${settings.customSystemPrompt}` : ''}
 
-Strict Literary Rules:
-1. Write in rich, flowery, and evocative Bengali prose.
-2. Focus on internal monologues, sensory details, and atmospheric descriptions.
-3. Chapters must feel part of a larger, cohesive 'Boro Uponnash'.
-4. Use authentic Bengali idioms and sophisticated vocabulary.
-5. Avoid repetition. Ensure the prose flows naturally for an adult audience.`;
+Strict Formatting & Literary Rules:
+1. Write exclusively in Bengali.
+2. Ensure deep emotional intensity and vivid sensory imagery.
+3. For Adult/Erotica, maintain a sophisticated and literary tone—sensual but never crude.
+4. Focus on character-driven developments.
+5. Return ONLY the story content. Do not include titles, introductions, or pleasantries.
+6. Use sophisticated Bengali vocabulary (Shudhu Shobdo).`;
 
   const prompt = `
-  Project: ${projectTitle}
+  Novel: ${projectTitle}
   Chapter: ${chapterTitle}
+  Context: ${context}
+  ${previousSummary ? `Previously: ${previousSummary}` : ''}
   
-  Instructions: Write a ${settings.length} novel chapter in Bengali.
-  
-  Context of the Novel: ${context}
-  ${previousSummary ? `Recap of previous events: ${previousSummary}` : ''}
-  
-  Generate the full, detailed chapter text now in high-quality Bengali.`;
+  Write a high-quality, immersive chapter/scene in Bengali.`;
 
   try {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
       config: {
-        systemInstruction: systemPrompt,
+        systemInstruction,
         temperature: settings.creativity,
-        maxOutputTokens: 40000, 
-        thinkingConfig: { thinkingBudget: 32768 } 
+        // Reserves tokens for reasoning to ensure "Best Quality"
+        thinkingConfig: { thinkingBudget: 12000 }
+      },
+    });
+
+    return response.text;
+  } catch (error: any) {
+    console.error("Gemini Generation Error:", error);
+    throw new Error(error.message || "কাহিনী তৈরিতে সমস্যা হয়েছে।");
+  }
+};
+
+/**
+ * Seamlessly continues existing story flow.
+ */
+export const continueStory = async (
+  currentText: string,
+  projectDescription: string,
+  genre: StoryGenre,
+  settings: GenerationSettings,
+  maturity: MaturityLevel,
+  language: LanguageStyle
+): Promise<string | undefined> => {
+  const ai = getAI();
+  const model = "gemini-3-flash-preview";
+  
+  const systemInstruction = `You are continuing a Bengali story. 
+Match the established tone, pace, and vocabulary. 
+Transition naturally from the last sentence provided.
+
+Tone: ${settings.tone}.
+Style: ${language}.
+Maturity: ${maturity}.
+Genre: ${genre}.
+
+Instruction: Return only the continuation text in Bengali.`;
+
+  const prompt = `
+  Story Background: ${projectDescription}
+  Current Text Flow: "...${currentText.slice(-2000)}"
+  
+  Continue the story for 5-6 paragraphs:`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        systemInstruction,
+        temperature: settings.creativity,
+        thinkingConfig: { thinkingBudget: 4000 }
       },
     });
 
     return response.text;
   } catch (error) {
-    console.error("Critical Generation Error:", error);
+    console.error("Continuation Error:", error);
     throw error;
   }
 };
 
 /**
- * Rewrites or edits content based on specific user feedback.
+ * Edits or transforms text based on user instruction.
  */
 export const rewriteContent = async (
   content: string,
   instruction: string,
   genre: StoryGenre
 ): Promise<string | undefined> => {
+  const ai = getAI();
   const model = "gemini-3-flash-preview";
-  const prompt = `
-  Current Content: ${content}
-  Edit Instruction: ${instruction}
   
-  Rewrite the content in Bengali according to the instruction while maintaining the ${genre} (Adult 18+) literary tone.`;
+  const prompt = `
+  Text: ${content}
+  Instruction: ${instruction}
+  Genre: ${genre}
+  
+  Rewrite the text in Bengali while keeping the literary quality.`;
 
   try {
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
       config: {
-        systemInstruction: "You are a master editor of Bengali adult fiction. Polish the text to perfection.",
+        systemInstruction: "You are a master Bengali editor. Polishing text for high-end literature.",
+        thinkingConfig: { thinkingBudget: 0 } // No reasoning needed for simple editing
       },
     });
 
@@ -98,14 +157,14 @@ export const rewriteContent = async (
 };
 
 /**
- * High-quality Bengali Text-to-Speech using the preview TTS model.
- * Returns raw base64 PCM data.
+ * High-quality Bengali Text-to-Speech using native audio modality.
  */
 export const generateSpeech = async (text: string): Promise<string | undefined> => {
+  const ai = getAI();
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `Read this Bengali novel excerpt naturally with emotion: ${text.slice(0, 3500)}` }] }],
+      contents: [{ parts: [{ text: `Read this Bengali story excerpt emotionally: ${text.slice(0, 2500)}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
@@ -118,7 +177,7 @@ export const generateSpeech = async (text: string): Promise<string | undefined> 
 
     return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
   } catch (error) {
-    console.error("TTS System Error:", error);
+    console.error("TTS System Failure:", error);
     throw error;
   }
 };
