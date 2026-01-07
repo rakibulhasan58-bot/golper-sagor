@@ -212,7 +212,7 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, onRewrite, isGenerat
           </div>
         </div>
 
-        <div className={`${isToolbarExpanded ? 'max-h-[500px]' : 'max-h-0 lg:max-h-[100px]'} overflow-hidden transition-all duration-300 ease-in-out`}>
+        <div className={`${isToolbarExpanded ? 'max-h-[500px]' : 'max-h-0 lg:max-h-[140px]'} overflow-hidden transition-all duration-300 ease-in-out`}>
           <div className="p-2 lg:px-4 lg:pb-3 flex flex-col gap-3 border-t border-slate-700/50 lg:border-t-0">
             <div className="flex flex-wrap gap-2 items-center justify-between">
               <div className="flex gap-1 bg-slate-950/30 p-1 rounded-xl">
@@ -241,16 +241,16 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, onRewrite, isGenerat
                   <span className="text-[10px] font-black uppercase text-slate-500 px-2">Size</span>
                   <select 
                     onChange={(e) => execCommand('fontSize', e.target.value)} 
-                    className="bg-slate-800 text-[10px] font-bold text-slate-300 px-2 py-1 rounded-lg outline-none focus:ring-1 focus:ring-rose-500"
+                    className="bg-slate-800 text-[10px] font-bold text-slate-300 px-2 py-1 rounded-lg outline-none focus:ring-1 focus:ring-rose-500 border-none cursor-pointer"
                     defaultValue="4"
                   >
-                    <option value="1">XS</option>
-                    <option value="2">S</option>
-                    <option value="3">M</option>
-                    <option value="4">L</option>
-                    <option value="5">XL</option>
-                    <option value="6">2XL</option>
-                    <option value="7">3XL</option>
+                    <option value="1">1 (XS)</option>
+                    <option value="2">2 (S)</option>
+                    <option value="3">3 (M)</option>
+                    <option value="4">4 (L)</option>
+                    <option value="5">5 (XL)</option>
+                    <option value="6">6 (2XL)</option>
+                    <option value="7">7 (3XL)</option>
                   </select>
                 </div>
                 <button onClick={() => execCommand('insertUnorderedList')} className="px-3 h-9 bg-slate-950/30 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors text-xs font-bold flex items-center gap-2">• List</button>
@@ -300,7 +300,7 @@ const Editor: React.FC<EditorProps> = ({ content, onChange, onRewrite, isGenerat
       
       <div className="p-2 lg:p-3 bg-slate-800/50 border-t border-slate-700 flex justify-between items-center px-6 lg:px-8 z-10 no-print">
         <span className="text-[9px] lg:text-[10px] text-slate-500 font-bold uppercase tracking-widest">শব্দ সংখ্যা: <span className="text-rose-500 font-black">{getWordCount(content)}</span></span>
-        <span className="hidden sm:inline text-[8px] lg:text-[9px] text-slate-600 uppercase font-black tracking-widest">Premium Fiction Suite v4.8</span>
+        <span className="hidden sm:inline text-[8px] lg:text-[9px] text-slate-600 uppercase font-black tracking-widest">Premium Fiction Suite v4.9</span>
       </div>
     </div>
   );
