@@ -23,6 +23,16 @@ const DEFAULT_SETTINGS: GenerationSettings = {
 
 const GENRES: StoryGenre[] = ['Romance', 'Thriller', 'Adult/Erotica', 'Drama', 'Social', 'Mystery', 'Historical'];
 const LENGTHS: ChapterLength[] = ['Short', 'Medium', 'Long', 'Epic'];
+const TONE_PRESETS = [
+  'Passionate and Descriptive',
+  'Suspenseful and Eerie',
+  'Melancholy and Soulful',
+  'Action Oriented',
+  'Dark and Thrilling',
+  'Emotional and Deep',
+  'Sensual and Romantic',
+  'Humorous and Light'
+];
 
 const App: React.FC = () => {
   const [savedProjects, setSavedProjects] = useState<StoryProject[]>([]);
@@ -40,7 +50,6 @@ const App: React.FC = () => {
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>("");
 
-  // Load from Storage
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -48,7 +57,6 @@ const App: React.FC = () => {
         const parsed = JSON.parse(stored) as StoryProject[];
         if (Array.isArray(parsed)) {
           setSavedProjects(parsed);
-          // Auto-load last project if exists
           if (parsed.length > 0 && !activeProject) {
             setActiveProject(parsed[0]);
             setActiveChapterIndex(0);
@@ -95,7 +103,6 @@ const App: React.FC = () => {
     });
   }, [activeProject]);
 
-  // Auto-save logic
   useEffect(() => {
     if (!activeProject) return;
     const current = JSON.stringify(activeProject);
@@ -188,7 +195,10 @@ const App: React.FC = () => {
     const updated = savedProjects.filter(p => p.id !== id);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     setSavedProjects(updated);
-    if (activeProject?.id === id) setActiveProject(null);
+    if (activeProject?.id === id) {
+      setActiveProject(null);
+      setActiveChapterIndex(0);
+    }
   };
 
   const handleGenerate = async () => {
@@ -350,9 +360,20 @@ const App: React.FC = () => {
     setActiveProject({ ...activeProject, chapters: chs });
   };
 
+  const handleToneChange = (newTone: string) => {
+    if (!activeProject) return;
+    if (hasChapterOverrides) {
+        updateChapterSetting('tone', newTone);
+    } else {
+        setActiveProject({
+            ...activeProject,
+            settings: { ...activeProject.settings, tone: newTone }
+        });
+    }
+  };
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden selection:bg-rose-500/30">
-      {/* Sidebar Overlay for Mobile */}
       {sidebarOpen && window.innerWidth <= 1024 && (
         <div 
           className="fixed inset-0 bg-black/70 backdrop-blur-md z-40 lg:hidden" 
@@ -466,14 +487,25 @@ const App: React.FC = () => {
               </div>
             )}
           </div>
-          
-          <div className="flex items-center gap-2 w-full lg:w-auto justify-end">
+
+          <div className="flex items-center gap-4 w-full lg:w-auto justify-end">
              {activeProject && (
-               <div className="hidden sm:flex items-center gap-1.5 lg:mr-4">
-                 <button onClick={() => handleSaveProject(false)} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">সেভ</button>
-                 <button onClick={copyToClipboard} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">Copy</button>
-                 <button onClick={exportWord} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">Word</button>
-                 <button onClick={clearChapterContent} className="px-3 py-2 bg-rose-900/30 hover:bg-rose-900/50 rounded-xl transition-all text-[9px] font-black border border-rose-900/50 uppercase text-rose-400">মুছুন</button>
+               <div className="flex items-center gap-3">
+                  <div className="hidden xl:flex flex-col items-end mr-2">
+                    <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1">Tone Preset</span>
+                    <select 
+                      value={activeChapter?.settings?.tone ?? activeProject.settings.tone}
+                      onChange={(e) => handleToneChange(e.target.value)}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[10px] font-bold text-rose-400 outline-none focus:border-rose-500"
+                    >
+                      {TONE_PRESETS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div className="hidden sm:flex items-center gap-1.5">
+                    <button onClick={() => handleSaveProject(false)} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">সেভ</button>
+                    <button onClick={copyToClipboard} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">Copy</button>
+                    <button onClick={exportWord} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">Word</button>
+                  </div>
                </div>
              )}
              
@@ -545,7 +577,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Settings Modal */}
       {isSettingsOpen && activeProject && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 lg:p-10 animate-fade-in">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsSettingsOpen(false)}></div>
@@ -585,11 +616,7 @@ const App: React.FC = () => {
                     <div className="space-y-4">
                       <label className="text-sm font-bold text-slate-300 block">মুড এবং টোন (Tone)</label>
                       <select value={settingsTab === 'project' ? activeProject.settings.tone : (activeChapter?.settings?.tone ?? activeProject.settings.tone)} onChange={e => settingsTab === 'project' ? setActiveProject({...activeProject, settings: {...activeProject.settings, tone: e.target.value}}) : updateChapterSetting('tone', e.target.value)} className="w-full bg-slate-950 text-xs font-bold p-4 rounded-2xl border border-slate-800 text-slate-300 outline-none focus:border-rose-500">
-                        <option value="Passionate and Descriptive">প্যাশনেট ও বর্ণনামূলক</option>
-                        <option value="Dark and Thrilling">ডার্ক ও থ্রিলিং</option>
-                        <option value="Emotional and Deep">আবেগময় ও গভীর</option>
-                        <option value="Sensual and Romantic">রোমান্টিক ও রোমাঞ্চকর</option>
-                        <option value="Action Oriented">অ্যাকশন ও গতিশীল</option>
+                        {TONE_PRESETS.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </div>
 
@@ -648,7 +675,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Print Overlay */}
       <div className="hidden print-only bg-white p-10 text-black">
         {activeProject && activeChapter && (
           <div>
