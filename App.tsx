@@ -170,17 +170,6 @@ const App: React.FC = () => {
     setActiveChapterIndex(nextIdx);
   };
 
-  const clearChapterContent = () => {
-    if (!activeProject) return;
-    if (window.confirm("আপনি কি এই পরিচ্ছেদের সমস্ত লেখা মুছে ফেলতে চান?")) {
-      const chs = [...activeProject.chapters];
-      if (chs[activeChapterIndex]) {
-        chs[activeChapterIndex].content = '';
-        setActiveProject({ ...activeProject, chapters: chs });
-      }
-    }
-  };
-
   const loadProject = (project: StoryProject) => {
     setActiveProject(project);
     setActiveChapterIndex(0);
@@ -315,15 +304,76 @@ const App: React.FC = () => {
     
     try {
       if (!(window as any).htmlDocx) {
-        alert("Export library still loading...");
+        alert("DOCX library is still loading. Please try again in a moment.");
         return;
       }
       const converted = (window as any).htmlDocx.asBlob(html);
-      (window as any).saveAs(converted, `${activeProject.title.replace(/\s+/g, '_')}.docx`);
+      (window as any).saveAs(converted, `${activeProject.title.replace(/\s+/g, '_')}_${chapter.title.replace(/\s+/g, '_')}.docx`);
     } catch (e) {
       console.error(e);
-      alert("Word export failed.");
+      alert("DOCX export failed.");
     }
+  };
+
+  const exportPDF = () => {
+    if (!activeProject || !activeProject.chapters[activeChapterIndex]) return;
+    const chapter = activeProject.chapters[activeChapterIndex];
+    const { jsPDF } = (window as any).jspdf;
+    
+    const doc = new jsPDF({
+      orientation: 'p',
+      unit: 'mm',
+      format: 'a4',
+      putOnlyUsedFonts: true
+    });
+    
+    const text = currentText(chapter.content);
+    const title = activeProject.title;
+    const chapterTitle = chapter.title;
+    
+    // Header
+    doc.setFontSize(22);
+    doc.setTextColor(225, 29, 72); // rose-600
+    doc.text(title, 105, 20, { align: 'center' });
+    
+    doc.setFontSize(16);
+    doc.setTextColor(51, 65, 85); // slate-700
+    doc.text(chapterTitle, 105, 30, { align: 'center' });
+    
+    doc.setDrawColor(225, 29, 72);
+    doc.setLineWidth(0.5);
+    doc.line(20, 35, 190, 35);
+
+    // Body text
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59); // slate-800
+    
+    const splitText = doc.splitTextToSize(text, 170);
+    
+    let y = 45;
+    const pageHeight = doc.internal.pageSize.height;
+    
+    splitText.forEach((line: string) => {
+      if (y > pageHeight - 20) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.text(line, 20, y);
+      y += 7;
+    });
+
+    doc.save(`${activeProject.title.replace(/\s+/g, '_')}_${chapterTitle.replace(/\s+/g, '_')}.pdf`);
+    
+    setError({ msg: "PDF ফাইল সফলভাবে তৈরি হয়েছে!", type: 'success' });
+    setTimeout(() => setError(null), 3000);
+  };
+
+  const exportText = () => {
+    if (!activeProject || !activeProject.chapters[activeChapterIndex]) return;
+    const chapter = activeProject.chapters[activeChapterIndex];
+    const text = `${activeProject.title}\n${chapter.title}\n\n${currentText(chapter.content)}`;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    (window as any).saveAs(blob, `${activeProject.title.replace(/\s+/g, '_')}.txt`);
   };
 
   const copyToClipboard = () => {
@@ -502,9 +552,14 @@ const App: React.FC = () => {
                     </select>
                   </div>
                   <div className="hidden sm:flex items-center gap-1.5">
-                    <button onClick={() => handleSaveProject(false)} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">সেভ</button>
-                    <button onClick={copyToClipboard} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">Copy</button>
-                    <button onClick={exportWord} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase">Word</button>
+                    <button onClick={() => handleSaveProject(false)} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase" title="Save Now">সেভ</button>
+                    <button onClick={copyToClipboard} className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-all text-[9px] font-black border border-slate-700 uppercase" title="Copy Content">Copy</button>
+                    
+                    <div className="flex items-center gap-1 bg-slate-800/30 p-1 rounded-xl border border-slate-800">
+                      <button onClick={exportWord} className="p-1.5 hover:bg-slate-700 rounded-lg transition-all text-[8px] font-black text-rose-400 uppercase">DOCX</button>
+                      <button onClick={exportPDF} className="p-1.5 hover:bg-slate-700 rounded-lg transition-all text-[8px] font-black text-rose-400 uppercase">PDF</button>
+                      <button onClick={exportText} className="p-1.5 hover:bg-slate-700 rounded-lg transition-all text-[8px] font-black text-rose-400 uppercase">TXT</button>
+                    </div>
                   </div>
                </div>
              )}

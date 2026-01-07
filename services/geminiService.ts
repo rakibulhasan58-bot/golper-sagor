@@ -2,16 +2,8 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { StoryGenre, GenerationSettings, MaturityLevel, LanguageStyle } from "../types";
 
-/**
- * Standard initialization.
- * Using gemini-3-flash-preview for general speed and gemini-3-pro-preview for depth.
- */
 const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-/**
- * Generates high-quality Bengali story content.
- * Adheres to "Super Fast" and "Best Quality" by leveraging gemini-3-flash-preview with a thinking budget.
- */
 export const generateStoryChapter = async (
   projectTitle: string,
   chapterTitle: string,
@@ -23,35 +15,28 @@ export const generateStoryChapter = async (
   previousSummary?: string
 ): Promise<string | undefined> => {
   const ai = getAI();
-  // Using gemini-3-flash-preview as requested for "super fast" performance
   const model = "gemini-3-flash-preview";
   
-  const systemInstruction = `You are an elite Bengali novelist specializing in long-form fictional narratives ("Boro Uponnash").
-Your prose is rich, descriptive, and culturally authentic.
-
+  const systemInstruction = `You are an elite Bengali novelist specializing in high-quality narratives.
 Tone: ${settings.tone}.
 Language Style: ${language}.
 Maturity Level: ${maturity}.
 Genre: ${genre}.
-Estimated Length: ${settings.length}.
+Output Style: Immersive Bengali Prose.
 
-${settings.customSystemPrompt ? `Special Directives: ${settings.customSystemPrompt}` : ''}
-
-Strict Formatting & Literary Rules:
+Rules:
 1. Write exclusively in Bengali.
-2. Ensure deep emotional intensity and vivid sensory imagery.
-3. For Adult/Erotica, maintain a sophisticated and literary tone—sensual but never crude.
-4. Focus on character-driven developments.
-5. Return ONLY the story content. Do not include titles, introductions, or pleasantries.
-6. Use sophisticated Bengali vocabulary (Shudhu Shobdo).`;
+2. Ensure deep emotional intensity.
+3. For Adult/Erotica, maintain a sophisticated literary tone.
+4. Return ONLY the story content without any conversational filler or metadata.`;
 
   const prompt = `
-  Novel: ${projectTitle}
+  Novel Title: ${projectTitle}
   Chapter: ${chapterTitle}
-  Context: ${context}
-  ${previousSummary ? `Previously: ${previousSummary}` : ''}
+  Plot Context: ${context}
+  ${previousSummary ? `Previous Events: ${previousSummary}` : ''}
   
-  Write a high-quality, immersive chapter/scene in Bengali.`;
+  Write a long, immersive chapter in Bengali.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -60,8 +45,7 @@ Strict Formatting & Literary Rules:
       config: {
         systemInstruction,
         temperature: settings.creativity,
-        // Reserves tokens for reasoning to ensure "Best Quality"
-        thinkingConfig: { thinkingBudget: 12000 }
+        thinkingConfig: { thinkingBudget: 15000 }
       },
     });
 
@@ -72,9 +56,6 @@ Strict Formatting & Literary Rules:
   }
 };
 
-/**
- * Seamlessly continues existing story flow.
- */
 export const continueStory = async (
   currentText: string,
   projectDescription: string,
@@ -86,22 +67,15 @@ export const continueStory = async (
   const ai = getAI();
   const model = "gemini-3-flash-preview";
   
-  const systemInstruction = `You are continuing a Bengali story. 
-Match the established tone, pace, and vocabulary. 
-Transition naturally from the last sentence provided.
-
-Tone: ${settings.tone}.
-Style: ${language}.
-Maturity: ${maturity}.
-Genre: ${genre}.
-
-Instruction: Return only the continuation text in Bengali.`;
+  const systemInstruction = `Continue the following Bengali story naturally. 
+Match the established tone (${settings.tone}) and style (${language}). 
+Return only the continuation text.`;
 
   const prompt = `
-  Story Background: ${projectDescription}
-  Current Text Flow: "...${currentText.slice(-2000)}"
+  Context: ${projectDescription}
+  Current Text: "...${currentText.slice(-2000)}"
   
-  Continue the story for 5-6 paragraphs:`;
+  Write the next part of the story in Bengali:`;
 
   try {
     const response = await ai.models.generateContent({
@@ -110,7 +84,7 @@ Instruction: Return only the continuation text in Bengali.`;
       config: {
         systemInstruction,
         temperature: settings.creativity,
-        thinkingConfig: { thinkingBudget: 4000 }
+        thinkingConfig: { thinkingBudget: 5000 }
       },
     });
 
@@ -121,9 +95,6 @@ Instruction: Return only the continuation text in Bengali.`;
   }
 };
 
-/**
- * Edits or transforms text based on user instruction.
- */
 export const rewriteContent = async (
   content: string,
   instruction: string,
@@ -133,11 +104,11 @@ export const rewriteContent = async (
   const model = "gemini-3-flash-preview";
   
   const prompt = `
-  Text: ${content}
+  Original Content: ${content}
   Instruction: ${instruction}
   Genre: ${genre}
   
-  Rewrite the text in Bengali while keeping the literary quality.`;
+  Rewrite the content in Bengali according to the instruction:`;
 
   try {
     const response = await ai.models.generateContent({
@@ -145,7 +116,7 @@ export const rewriteContent = async (
       contents: prompt,
       config: {
         systemInstruction: "You are a master Bengali editor. Polishing text for high-end literature.",
-        thinkingConfig: { thinkingBudget: 0 } // No reasoning needed for simple editing
+        thinkingConfig: { thinkingBudget: 2000 }
       },
     });
 
@@ -156,15 +127,12 @@ export const rewriteContent = async (
   }
 };
 
-/**
- * High-quality Bengali Text-to-Speech using native audio modality.
- */
 export const generateSpeech = async (text: string): Promise<string | undefined> => {
   const ai = getAI();
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `Read this Bengali story excerpt emotionally: ${text.slice(0, 2500)}` }] }],
+      contents: [{ parts: [{ text: `Read this Bengali story emotionally: ${text.slice(0, 2000)}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
